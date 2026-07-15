@@ -1,0 +1,9 @@
+{
+    "system_prompt": {
+        "name": "System Prompt",
+        "type": "textarea",
+        "default": null,
+        "hint": "Custom system prompt for voice calls. Leave empty to use the default persona.",
+        "rows": 6
+    }
+}
