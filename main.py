@@ -123,6 +123,7 @@ class PhoneCallPlugin(BasePlugin):
                 "type": "error",
                 "message": f"Speech recognition failed: {e}"
             })
+            await self._send_json(ws, {"type": "status", "state": "idle"})
             return
 
         if not user_text or not user_text.strip():
@@ -131,9 +132,10 @@ class PhoneCallPlugin(BasePlugin):
                 "role": "user",
                 "text": "(no speech detected)"
             })
+            await self._send_json(ws, {"type": "status", "state": "idle"})
             return
 
-        logger.info(f"[phone-call] user said: {user_text}")
+        logger.info(f"[phone-call] recognized user speech ({len(user_text)} chars)")
         await self._send_json(ws, {
             "type": "transcript",
             "role": "user",
@@ -163,13 +165,14 @@ class PhoneCallPlugin(BasePlugin):
             # Remove the user message we just added since we got no response
             if conversation and conversation[-1].role == "user":
                 conversation.pop()
+            await self._send_json(ws, {"type": "status", "state": "idle"})
             return
 
         if not assistant_text.strip():
             assistant_text = "..."
 
         conversation.append(OpenAIMessage(role="assistant", content=assistant_text))
-        logger.info(f"[phone-call] AI said: {assistant_text}")
+        logger.info(f"[phone-call] generated AI response ({len(assistant_text)} chars)")
 
         await self._send_json(ws, {
             "type": "transcript",

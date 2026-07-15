@@ -1,7 +1,7 @@
 {
     "display_name": "Phone Call",
     "plugin_id": "kira-ai-plugin-phone-call",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "core_version": ">=2.26.2",
     "author": "xxynet",
     "description": "Real-time voice conversation with AI via browser microphone",

@@ -10,16 +10,17 @@ English | [简体中文](README.zh.md)
 
 ## 📖 Overview
 
-This plugin enables real-time voice calls with AI in the browser. Hold the microphone button to speak, release to send — the plugin automatically runs the **STT → LLM → TTS** pipeline and plays the AI voice response through your browser.
+This plugin enables hands-free voice calls with AI in the browser. Click the call button and speak naturally after the call connects. Browser-side voice activity detection automatically finds utterance boundaries, runs the **STT → LLM → TTS** pipeline, and resumes listening after the AI finishes speaking.
 
 It works with any LLM, STT, and TTS provider configured in KiraAI.
 
 > [!NOTE]
-> The ultimate goal is true phone calling. Currently, it uses push-to-talk mode — hold to speak, release to send. True two-way voice calling will be implemented in a future version.
+> The current mode is automatic turn-taking: recording pauses while the AI is thinking or speaking so speaker output is not recognized as user speech. Full-duplex interruption may be added later.
 
 ## ✨ Features
 
-- 🎙️ **Push-to-talk** — hold to speak, release to send
+- 📞 **Hands-free calls** — automatic speech and silence detection after dialing
+- 🔇 **Echo protection** — listening pauses during AI playback and resumes automatically
 - 🔄 **Full pipeline** — speech recognition → AI reasoning → voice synthesis in one flow
 - 💬 **Conversation history** — multi-turn context preserved throughout the call
 - 🧑 **Persona support** — automatically loads persona settings from KiraAI
@@ -38,12 +39,13 @@ It works with any LLM, STT, and TTS provider configured in KiraAI.
 ### Use
 
 1. Open KiraAI WebUI → the **call** icon in the sidebar
-2. Click **"Allow"** when the browser asks for microphone permission
-3. **Hold** the green center button, speak into your microphone
-4. **Release** — the AI will think, then reply with voice
+2. Click the green **call** button
+3. Click **Allow** when the browser asks for microphone permission
+4. Speak after the call connects; about 0.8 seconds of silence submits the utterance automatically
+5. Continue speaking after the AI reply, or click the red button to hang up
 
 > [!TIP]
-> You can interrupt the AI at any time by holding the button and speaking again.
+> A relatively quiet environment works best. Continuous background noise can affect automatic utterance detection.
 
 ## ⚙️ Configuration
 
@@ -65,12 +67,15 @@ On each connection, the current time and your KiraAI persona are automatically a
 ## 🧠 Pipeline
 
 ```
-User presses and holds the talk button
+User clicks call and the connection opens
        │
        ▼
-[MediaRecorder] → WebM/Opus audio chunks (every 250ms)
+[Browser VAD] Continuously detects user speech
        │
-       ▼  (Release → sends "audio_end")
+       ▼  (About 0.8 seconds of silence)
+[MediaRecorder] → WebM/Opus utterance → sends "audio_end"
+       │
+       ▼
 [STT] Speech → Text
        │
        ▼
@@ -80,7 +85,7 @@ User presses and holds the talk button
 [TTS] Text → Speech audio
        │
        ▼
-[Browser] Play audio → round-trip complete
+[Browser] Play audio → automatically resume listening
 ```
 
 ### WebSocket Protocol
@@ -89,7 +94,7 @@ User presses and holds the talk button
 Connection → ws://<host>/api/plugin/phone-call/call
 
 Client → Server:
-  ─ Binary frame: audio chunk (incremental during recording)
+  ─ Binary frame: complete VAD-segmented WebM/Opus utterance
   ─ Text frame:   {"type": "audio_end"}  — trigger pipeline
   ─ Text frame:   {"type": "clear"}        — reset conversation
 
@@ -107,7 +112,7 @@ Server → Client (JSON):
 |--------|------|----------------|
 | **app.js** | Entry | State management, DOM rendering, event binding |
 | **ws.js** | WebSocket | Connection management, auto-reconnect, messaging |
-| **recorder.js** | Recorder | Microphone capture, MediaRecorder wrapper |
+| **recorder.js** | Recorder | Microphone capture, browser VAD, automatic segmentation |
 | **player.js** | Player | TTS audio queue playback, interrupt support |
 
 ## 🔌 Backend Dependencies

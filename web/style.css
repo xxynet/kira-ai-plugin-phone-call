@@ -100,9 +100,9 @@
   50%      { opacity: 0.3; }
 }
 
-/* ── Push-to-talk button ─────────────────────────────────────────────── */
+/* ── Call button ─────────────────────────────────────────────────────── */
 
-.btn-talk {
+.btn-call {
   width: 72px;
   height: 72px;
   border-radius: 50%;
@@ -121,19 +121,27 @@
   touch-action: none;
 }
 
-.btn-talk:hover:not(:disabled) {
+.btn-call:hover:not(:disabled) {
   box-shadow: 0 6px 28px rgba(16, 185, 129, 0.55);
 }
 
-.btn-talk:active:not(:disabled),
-.btn-talk.pressed {
+.btn-call:active:not(:disabled) {
   transform: scale(0.92);
   box-shadow: 0 2px 12px rgba(16, 185, 129, 0.6);
 }
 
-.btn-talk:disabled {
+.btn-call:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.btn-call.hangup {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.4);
+}
+
+.btn-call.hangup:hover:not(:disabled) {
+  box-shadow: 0 6px 28px rgba(220, 38, 38, 0.55);
 }
 
 /* ── Transcript messages ─────────────────────────────────────────────── */

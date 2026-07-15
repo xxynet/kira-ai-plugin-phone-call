@@ -4,8 +4,10 @@
 
 let ws = null
 let messageHandler = null
+let statusHandler = null
 let reconnectTimer = null
 let reconnectDelay = 1000
+let reconnectEnabled = false
 const MAX_RECONNECT_DELAY = 10000
 
 /**
@@ -15,10 +17,12 @@ const MAX_RECONNECT_DELAY = 10000
  */
 export function connect(onMessage, onStatusChange) {
   messageHandler = onMessage
-  _doConnect(onStatusChange)
+  statusHandler = onStatusChange
+  reconnectEnabled = true
+  _doConnect()
 }
 
-function _doConnect(onStatusChange) {
+function _doConnect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return
   }
@@ -28,7 +32,7 @@ function _doConnect(onStatusChange) {
 
   ws.onopen = () => {
     reconnectDelay = 1000
-    onStatusChange('connected')
+    statusHandler?.('connected')
   }
 
   ws.onmessage = (event) => {
@@ -47,12 +51,15 @@ function _doConnect(onStatusChange) {
   }
 
   ws.onclose = () => {
-    onStatusChange('disconnected')
+    ws = null
+    statusHandler?.('disconnected')
+    if (!reconnectEnabled) return
+
     // Auto-reconnect with exponential backoff
     clearTimeout(reconnectTimer)
     reconnectTimer = setTimeout(() => {
       reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY)
-      _doConnect(url, onStatusChange)
+      _doConnect()
     }, reconnectDelay)
   }
 }
@@ -87,6 +94,7 @@ export function isConnected() {
  * Disconnect and stop reconnecting.
  */
 export function disconnect() {
+  reconnectEnabled = false
   clearTimeout(reconnectTimer)
   if (ws) {
     ws.onclose = null
