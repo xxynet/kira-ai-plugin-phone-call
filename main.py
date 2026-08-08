@@ -4,6 +4,7 @@ from datetime import datetime
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from core.utils.common_utils import speech_to_text, text_to_speech
 from core.plugin import BasePlugin, PluginPage, PageMenu, logger, register
 from core.provider import LLMRequest
 from core.agent.message import OpenAIMessage
@@ -116,7 +117,10 @@ class PhoneCallPlugin(BasePlugin):
         try:
             audio_b64 = base64.b64encode(bytes(audio_data)).decode("utf-8")
             record = Record(record=f"data:audio/webm;base64,{audio_b64}")
-            user_text = await self.ctx.llm_api.speech_to_text(record)
+            stt_client = self.ctx.provider_mgr.get_default_stt()
+            if not stt_client:
+                raise ValueError("Default STT model not configured")
+            user_text = await speech_to_text(client=stt_client, record=record)
         except Exception as e:
             logger.error(f"[phone-call] STT error: {e}")
             await self._send_json(ws, {
@@ -184,8 +188,17 @@ class PhoneCallPlugin(BasePlugin):
         await self._send_json(ws, {"type": "status", "state": "speaking"})
 
         try:
-            tts_record = await self.ctx.llm_api.text_to_speech(assistant_text)
+            tts_model = self.ctx.provider_mgr.get_default_tts()
+            if not tts_model:
+                raise ValueError("Default TTS model not configured")
+
+            provider_name = tts_model.model.provider_name
+            model_id = tts_model.model.model_id
+            logger.info(f"Generating speech using {model_id} ({provider_name})")
+            
+            tts_record = await text_to_speech(client=tts_model, text=assistant_text)
             if tts_record:
+                logger.info(f"Generated speech from text {assistant_text}")
                 audio_b64 = await tts_record.to_base64()
                 mime = tts_record.mime or "audio/mpeg"
                 await self._send_json(ws, {
