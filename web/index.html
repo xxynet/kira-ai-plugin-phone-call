@@ -3,69 +3,75 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Phone Call</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: ['selector', '[data-theme="dark"]'],
-    }
-  </script>
+  <title>AI 通话</title>
   <script src="/plugin-bridge.js"></script>
   <link rel="stylesheet" href="./style.css">
 </head>
-<body class="h-screen w-screen overflow-hidden bg-gray-100 text-gray-900 transition-colors duration-300"
-      data-theme="light">
-
-  <div id="app" class="flex flex-col h-full max-w-lg mx-auto">
-
-    <!-- Header -->
-    <header class="flex items-center justify-between px-4 py-3 border-b border-gray-200
-                    bg-white/80 backdrop-blur-sm shrink-0
-                    dark:bg-gray-900/80 dark:border-gray-700">
-      <div class="flex items-center gap-2">
-        <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-gray-400 status-dot-idle"></div>
-        <h1 class="text-base font-semibold">AI 通话</h1>
-      </div>
-      <button id="btn-clear"
-              class="text-xs px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200
-                     dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors
-                     disabled:opacity-40 disabled:cursor-not-allowed"
-              disabled>
-        清除对话
+<body data-theme="light">
+  <div id="app" data-state="disconnected">
+    <header class="page-header">
+      <h1><svg class="icon brand-icon" aria-hidden="true"><use href="./icons.svg#phone"></use></svg><span data-i18n="title">AI 通话</span></h1>
+      <button id="btn-clear" class="header-action" type="button" disabled>
+        <svg class="icon" aria-hidden="true"><use href="./icons.svg#trash"></use></svg>
+        <span data-i18n="clear">清除对话</span>
       </button>
     </header>
 
-    <!-- Avatar + Status -->
-    <div class="flex flex-col items-center pt-8 pb-4 shrink-0">
-      <div id="avatar" class="avatar-ring avatar-idle">
-        <div class="avatar-inner">
-          <svg class="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round"
-                  d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456Z" />
-          </svg>
+    <main class="call-screen">
+      <section class="contact" aria-labelledby="contact-name">
+        <div id="avatar" class="avatar-ring">
+          <div class="avatar-inner">
+            <span id="avatar-fallback" aria-hidden="true">AI</span>
+            <img id="avatar-image" alt="" hidden>
+          </div>
+        </div>
+        <h2 id="contact-name">AI</h2>
+        <p class="call-type" data-i18n="voiceCall">语音通话</p>
+        <p id="call-duration" class="call-duration" aria-label="通话时长">00:00</p>
+      </section>
+
+      <div class="call-bottom">
+        <div class="call-status" role="status" aria-live="polite">
+          <div class="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <p id="status-text">准备通话</p>
+        </div>
+        <p id="call-error" class="call-error" role="alert" hidden></p>
+
+        <div class="controls" aria-label="通话控制">
+          <button id="btn-mute" class="control" type="button" aria-pressed="false" disabled>
+            <span class="control-disc"><svg class="icon" aria-hidden="true"><use href="./icons.svg#mic"></use></svg></span>
+            <span id="mute-label" data-i18n="mute">静音</span>
+          </button>
+          <button id="btn-speaker" class="control" type="button" aria-pressed="true">
+            <span class="control-disc"><svg class="icon" aria-hidden="true"><use href="./icons.svg#volume-2"></use></svg></span>
+            <span id="speaker-label" data-i18n="speaker">扬声器</span>
+          </button>
+          <button id="btn-captions" class="control" type="button" aria-pressed="false" aria-expanded="false" aria-controls="caption-panel">
+            <span class="control-disc"><svg class="icon" aria-hidden="true"><use href="./icons.svg#captions"></use></svg></span>
+            <span data-i18n="captions">字幕</span>
+          </button>
+        </div>
+
+        <div class="call-action">
+          <button id="btn-call" class="btn-call" type="button" aria-label="拨号" disabled>
+            <svg class="icon" aria-hidden="true"><use href="./icons.svg#phone"></use></svg>
+          </button>
+          <span id="call-label" data-i18n="dial">拨号</span>
         </div>
       </div>
-      <p id="status-text" class="mt-3 text-sm text-gray-500 dark:text-gray-400">等待连接...</p>
-    </div>
+    </main>
 
-    <!-- Transcript -->
-    <div id="transcript"
-         class="flex-1 overflow-y-auto px-4 space-y-3 pb-4 scroll-smooth">
-      <!-- Messages will be appended here -->
-    </div>
-
-    <!-- Call / hang-up button -->
-    <div class="shrink-0 flex flex-col items-center pb-6 pt-2">
-      <button id="btn-call"
-              class="btn-call select-none"
-              aria-label="拨号"
-              disabled>
-      </button>
-      <p id="call-hint" class="mt-2 text-xs text-gray-400 dark:text-gray-500">点击拨号</p>
-    </div>
-
+    <aside id="caption-panel" class="caption-panel" aria-labelledby="caption-title" hidden>
+      <div class="caption-header">
+        <h2 id="caption-title" data-i18n="captionTitle">通话字幕</h2>
+        <button id="btn-close-captions" class="icon-button" type="button" aria-label="关闭字幕">
+          <svg class="icon" aria-hidden="true"><use href="./icons.svg#x"></use></svg>
+        </button>
+      </div>
+      <p id="caption-empty" class="caption-empty" data-i18n="captionEmpty">通话开始后，字幕将显示在这里</p>
+      <div id="transcript" class="transcript" role="log" aria-live="polite" aria-relevant="additions"></div>
+    </aside>
   </div>
-
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>

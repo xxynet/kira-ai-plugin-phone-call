@@ -176,7 +176,7 @@ function _stopSegment(emitUtterance) {
     stopping = false
     _resetVoiceState()
 
-    if (emitUtterance && blob.size > 0) utteranceHandler?.(blob)
+    if (emitUtterance && listening && blob.size > 0) utteranceHandler?.(blob)
     if (listening) _startSegment()
   }
   recorder.stop()
@@ -188,6 +188,11 @@ function _resetVoiceState() {
   silenceSince = null
   speechStartedAt = null
   segmentStartedAt = null
+}
+
+/** Mute capture at the media-track level without releasing the device. */
+export function setMuted(muted) {
+  mediaStream?.getAudioTracks().forEach((track) => { track.enabled = !muted })
 }
 
 export function isListening() {
@@ -205,7 +210,11 @@ export async function dispose() {
     vadTimer = null
   }
 
-  if (mediaRecorder?.state === 'recording') mediaRecorder.stop()
+  if (mediaRecorder) {
+    mediaRecorder.ondataavailable = null
+    mediaRecorder.onstop = null
+    if (mediaRecorder.state === 'recording') mediaRecorder.stop()
+  }
   mediaRecorder = null
   chunks = []
   stopping = false

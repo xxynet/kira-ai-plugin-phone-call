@@ -23,7 +23,8 @@
 - 🔇 **回声保护** — AI 回复期间暂停语音检测，播放结束后自动恢复
 - 🔄 **全链路流水线** — 语音识别 → AI 推理 → 语音合成一气呵成
 - 💬 **对话历史** — 多轮对话上下文自动保持
-- 🧑 **角色人格** — 自动加载 KiraAI 已配置的角色设定（persona）
+- 🧑 **人设联系人** — 显示当前人设的名称与参考图；没有参考图时显示名称首字
+- 🎚️ **通话控制** — 通话计时、麦克风静音、回复声音开关和可收起的字幕面板
 - 🌙 **深色模式** — 跟随 KiraAI WebUI 主题
 - 🎛️ **自定义提示词** — 可在插件设置中配置系统提示词
 - 🔗 **自动重连** — WebSocket 断线后指数退避自动重连
@@ -43,6 +44,9 @@
 3. 浏览器弹出麦克风权限请求时点击 **允许**
 4. 接通后直接说话；停顿约 0.8 秒后，AI 会自动开始处理并用语音回复
 5. AI 回复结束后可直接继续说话；点击红色按钮挂断
+6. 使用 **静音**、**扬声器** 和 **字幕** 控制麦克风收音、回复声音和字幕显示。扬声器按钮仅开关回复声音，不切换音频输出设备。
+
+页面打开及每次拨号前会读取当前人设的名称和参考图。参考图独立下载，图片缓慢或不可用不会阻止拨号；没有参考图时显示人设名称首字。界面语言和深浅主题跟随 WebUI。
 
 > [!TIP]
 > 建议在相对安静的环境中使用。持续背景噪声可能影响自动语音边界检测。
@@ -91,7 +95,7 @@ Be warm, conversational, and to the point.
 ### WebSocket 协议
 
 ```
-连接 → ws://<host>/api/plugin/phone-call/call
+连接 → ws://<host>/ws/plugin/kira-ai-plugin-phone-call/call
 
 客户端 → 服务器：
   ─ 二进制帧：自动分段后的完整 WebM/Opus 语音片段
@@ -113,6 +117,8 @@ Be warm, conversational, and to the point.
 | **app.js** | 入口 | 状态管理、DOM 渲染、事件绑定 |
 | **ws.js** | WebSocket | 连接管理、自动重连、消息收发 |
 | **recorder.js** | 录音 | 麦克风录制、浏览器端 VAD、自动语音分段 |
+| **persona.js** | 联系人 | 当前人设名称和需认证的参考图加载 |
+| **i18n.js** | 语言 | 中文和英文界面文案 |
 | **player.js** | 播放 | TTS 音频队列顺序播放、中断支持 |
 
 ## 🔌 后端依赖
@@ -132,19 +138,38 @@ data/plugins/kira-ai-plugin-phone-call/
 ├── main.py              # FastAPI WebSocket + 流水线逻辑
 ├── manifest.json
 ├── schema.json          # 插件配置 schema
+├── assets/              # 侧边栏电话图标
+├── tests/test_web.mjs   # 前端行为检查
 ├── README.md            # 英文文档
 ├── README.zh.md         # 本文档（中文）
 └── web/
     ├── index.html       # Web UI 入口
     ├── style.css        # 样式
+    ├── icons.svg        # Lucide 图标定义
     └── js/
         ├── app.js       # 主入口
         ├── ws.js        # WebSocket 管理器
         ├── recorder.js  # 麦克风录音器
+        ├── persona.js   # 联系人信息和参考图
+        ├── i18n.js      # 中英文界面文案
         └── player.js    # 音频播放队列
 ```
+
+## 验证
+
+使用 Node.js 18 或更新版本运行前端行为检查：
+
+```bash
+node --test tests/test_web.mjs
+```
+
+测试模拟媒体设备和 HTTP 响应，覆盖界面翻译 key、人设认证与头像加载、回复声音开关及麦克风资源释放，不访问真实麦克风或 AI 服务。
 
 ## 🔗 相关链接
 
 - [KiraAI 文档](https://docs.kira-ai.top/zh/)
 - [KiraAI GitHub](https://github.com/xxynet/KiraAI)
+
+人设请求优先使用当前会话 Cookie。为兼容仅保存 Bearer Token 的会话，Cookie 请求返回 401 时才使用 Token 重试，避免其他端口的旧 Token 覆盖有效 Cookie。
+
+页面使用本地 Lucide SVG 图标。

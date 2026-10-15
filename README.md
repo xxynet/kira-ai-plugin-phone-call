@@ -23,7 +23,8 @@ It works with any LLM, STT, and TTS provider configured in KiraAI.
 - 🔇 **Echo protection** — listening pauses during AI playback and resumes automatically
 - 🔄 **Full pipeline** — speech recognition → AI reasoning → voice synthesis in one flow
 - 💬 **Conversation history** — multi-turn context preserved throughout the call
-- 🧑 **Persona support** — automatically loads persona settings from KiraAI
+- 🧑 **Persona contact** — shows the active persona name and reference image; uses an initial when no image is available
+- 🎚️ **Call controls** — call timer, microphone mute, reply-audio toggle, and collapsible captions
 - 🌙 **Dark mode** — follows KiraAI WebUI theme
 - 🎛️ **Customizable prompt** — configure the system prompt in plugin settings
 - 🔗 **Auto-reconnect** — WebSocket reconnects on disconnect with exponential backoff
@@ -43,6 +44,9 @@ It works with any LLM, STT, and TTS provider configured in KiraAI.
 3. Click **Allow** when the browser asks for microphone permission
 4. Speak after the call connects; about 0.8 seconds of silence submits the utterance automatically
 5. Continue speaking after the AI reply, or click the red button to hang up
+6. Use **Mute**, **Speaker**, and **Captions** to control microphone capture, reply-audio playback, and the transcript. The speaker button toggles sound; it does not select an audio output device.
+
+The contact name and avatar are read from the active persona when the page opens and before each call. The reference image downloads separately, so a slow or unavailable avatar does not block dialing. Without a reference image, the avatar shows the first character of the persona name. The page follows the WebUI language and theme.
 
 > [!TIP]
 > A relatively quiet environment works best. Continuous background noise can affect automatic utterance detection.
@@ -91,7 +95,7 @@ User clicks call and the connection opens
 ### WebSocket Protocol
 
 ```
-Connection → ws://<host>/api/plugin/phone-call/call
+Connection → ws://<host>/ws/plugin/kira-ai-plugin-phone-call/call
 
 Client → Server:
   ─ Binary frame: complete VAD-segmented WebM/Opus utterance
@@ -113,6 +117,8 @@ Server → Client (JSON):
 | **app.js** | Entry | State management, DOM rendering, event binding |
 | **ws.js** | WebSocket | Connection management, auto-reconnect, messaging |
 | **recorder.js** | Recorder | Microphone capture, browser VAD, automatic segmentation |
+| **persona.js** | Contact | Active persona name and authenticated reference-image loading |
+| **i18n.js** | Language | Chinese and English UI strings |
 | **player.js** | Player | TTS audio queue playback, interrupt support |
 
 ## 🔌 Backend Dependencies
@@ -132,19 +138,38 @@ data/plugins/kira-ai-plugin-phone-call/
 ├── main.py              # FastAPI WebSocket + pipeline logic
 ├── manifest.json
 ├── schema.json          # Plugin config schema
+├── assets/              # Sidebar phone icon
+├── tests/test_web.mjs   # Frontend behavior checks
 ├── README.md            # This file (English)
 ├── README.zh.md         # Chinese documentation
 └── web/
     ├── index.html       # Web UI entry
     ├── style.css        # UI styles
+    ├── icons.svg        # Lucide icon symbols
     └── js/
         ├── app.js       # Main entry point
         ├── ws.js        # WebSocket manager
         ├── recorder.js  # Microphone recorder
+        ├── persona.js   # Contact metadata and reference image
+        ├── i18n.js      # Chinese and English UI strings
         └── player.js    # Audio playback queue
 ```
+
+## Verification
+
+Run the frontend behavior checks with Node.js 18 or later:
+
+```bash
+node --test tests/test_web.mjs
+```
+
+The tests mock media devices and HTTP responses. They cover UI translation keys, persona authentication and image loading, reply-audio mute, and microphone disposal without accessing real microphones or AI providers.
 
 ## 🔗 Related
 
 - [KiraAI Documentation](https://docs.kira-ai.top)
 - [KiraAI GitHub](https://github.com/xxynet/KiraAI)
+
+Persona requests use the current session cookie first. For sessions that only have a stored Bearer token, the plugin retries with that token after a 401 response; this prevents a stale token from another port from overriding a valid cookie.
+
+The page uses locally bundled Lucide SVG icons.

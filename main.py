@@ -234,7 +234,7 @@ class PhoneCallPlugin(BasePlugin):
         auth=True,
         menu=PageMenu(
             label={"zh": "AI 通话", "en": "AI Phone Call"},
-            icon="Phone",
+            icon="assets/phone.svg",
             order=100,
         ),
     )
