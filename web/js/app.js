@@ -1,120 +1,228 @@
-/** AI Phone Call — hands-free call controller. */
-
+/** Persona-based phone call screen and hands-free call lifecycle. */
 import * as ws from './ws.js'
 import * as recorder from './recorder.js'
 import * as player from './player.js'
+import { setLocale, t } from './i18n.js'
+import { loadPersona, loadPersonaAvatar } from './persona.js'
 
-const $avatar = document.getElementById('avatar')
-const $statusDot = document.getElementById('status-dot')
-const $statusText = document.getElementById('status-text')
-const $transcript = document.getElementById('transcript')
-const $btnCall = document.getElementById('btn-call')
-const $btnClear = document.getElementById('btn-clear')
-const $callHint = document.getElementById('call-hint')
-
-const PHONE_ICON = `
-  <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-    <path stroke-linecap="round" stroke-linejoin="round"
-      d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102A1.125 1.125 0 0 0 5.872 2.25H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" />
-  </svg>`
-const HANGUP_ICON = `
-  <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-    <path stroke-linecap="round" stroke-linejoin="round"
-      d="M21 15.46l-5.27-1.22a1 1 0 0 0-1.01.34l-1.15 1.41a15.05 15.05 0 0 1-5.56-5.56l1.41-1.15a1 1 0 0 0 .34-1.01L8.54 3A1 1 0 0 0 7.56 2.2H4.03A1.83 1.83 0 0 0 2.2 4.17 19.62 19.62 0 0 0 19.83 21.8a1.83 1.83 0 0 0 1.97-1.83v-3.53a1 1 0 0 0-.8-.98Z" />
-  </svg>`
-
-const STATUS_MAP = {
-  disconnected: { text: '点击拨号开始通话', dot: 'idle', ring: 'idle' },
-  connecting: { text: '正在接通...', dot: 'thinking', ring: 'thinking' },
-  listening: { text: '正在聆听...', dot: 'listening', ring: 'listening' },
-  thinking: { text: '思考中...', dot: 'thinking', ring: 'thinking' },
-  speaking: { text: 'AI 说话中...', dot: 'speaking', ring: 'speaking' },
-}
-
+const $ = (id) => document.getElementById(id)
 let state = 'disconnected'
 let callActive = false
+let ending = false
+let busy = false
+let clearing = false
+let micMuted = false
+let speakerEnabled = true
+let callGeneration = 0
+let microphoneTask = null
+let startedAt = null
+let durationTimer = null
+let personaName = ''
+let avatarUrl = null
+let personaRequest = 0
+let personaController = null
+let avatarController = null
+let errorKey = null
 
-function setState(newState) {
-  state = newState
-  const info = STATUS_MAP[newState] || STATUS_MAP.disconnected
-  $statusText.textContent = info.text
-  $statusDot.className = `w-2.5 h-2.5 rounded-full status-dot-${info.dot}`
-  $avatar.className = `avatar-ring avatar-${info.ring}`
+function setIcon(id, icon) {
+  $(id).querySelector('use').setAttribute('href', './icons.svg#' + icon)
 }
 
-function updateCallButton() {
-  $btnCall.innerHTML = callActive ? HANGUP_ICON : PHONE_ICON
-  $btnCall.classList.toggle('hangup', callActive)
-  $btnCall.setAttribute('aria-label', callActive ? '挂断' : '拨号')
-  $callHint.textContent = callActive ? '点击挂断' : '点击拨号'
-  $btnClear.disabled = !callActive
+function render() {
+  $('app').dataset.state = state
+  $('app').dataset.muted = String(micMuted)
+  $('status-text').textContent = t(clearing ? 'clearing' : micMuted && state === 'listening' ? 'muted' : state)
+  $('btn-call').classList.toggle('hangup', callActive)
+  $('btn-call').setAttribute('aria-label', t(callActive ? 'hangup' : 'dial'))
+  $('call-label').textContent = t(ending ? 'ending' : callActive ? 'hangup' : 'dial')
+  $('btn-clear').disabled = !callActive || !ws.isConnected() || busy || clearing || player.isPlaying()
+  $('btn-mute').disabled = !callActive || !ws.isConnected()
+  $('btn-mute').setAttribute('aria-pressed', String(micMuted))
+  $('btn-mute').setAttribute('aria-label', t(micMuted ? 'unmuteAction' : 'muteAction'))
+  $('mute-label').textContent = t(micMuted ? 'muted' : 'mute')
+  setIcon('btn-mute', micMuted ? 'mic-off' : 'mic')
+  $('btn-speaker').setAttribute('aria-pressed', String(speakerEnabled))
+  $('btn-speaker').setAttribute('aria-label', t(speakerEnabled ? 'speakerOffAction' : 'speakerOnAction'))
+  $('speaker-label').textContent = t(speakerEnabled ? 'speaker' : 'speakerOff')
+  setIcon('btn-speaker', speakerEnabled ? 'volume-2' : 'volume-x')
+  $('contact-name').textContent = personaName || t('assistant')
+  for (const label of document.querySelectorAll('.msg-label')) {
+    label.textContent = label.dataset.role === 'assistant' ? personaName || t('assistant') : t('user')
+  }
+  if (errorKey) $('call-error').textContent = t(errorKey)
 }
 
-const ROLE_LABELS = { user: '你', assistant: 'AI' }
+function setState(value) {
+  state = value
+  render()
+}
+
+function applyContext(ctx) {
+  document.documentElement.dataset.theme = ctx.isDark ? 'dark' : 'light'
+  setLocale(ctx.locale)
+  document.title = t('title')
+  for (const element of document.querySelectorAll('[data-i18n]')) {
+    element.textContent = t(element.dataset.i18n)
+  }
+  $('call-duration').setAttribute('aria-label', t('duration'))
+  document.querySelector('.controls').setAttribute('aria-label', t('controls'))
+  $('btn-close-captions').setAttribute('aria-label', t('closeCaptions'))
+  for (const element of document.querySelectorAll('[data-no-speech]')) element.textContent = t('noSpeech')
+  render()
+}
+
+function showError(message, key = null) {
+  errorKey = key
+  $('call-error').textContent = key ? t(key) : message
+  $('call-error').hidden = false
+}
+
+function clearError() {
+  errorKey = null
+  $('call-error').hidden = true
+  $('call-error').textContent = ''
+}
+
+function clearTranscript() {
+  $('transcript').replaceChildren()
+  $('caption-empty').hidden = false
+}
 
 function appendMessage(role, text) {
-  const wrapper = document.createElement('div')
-  wrapper.className = role === 'user' ? 'flex justify-end' : 'flex justify-start'
-  const bubble = document.createElement('div')
-  bubble.className = `msg-bubble ${role === 'user' ? 'msg-user' : 'msg-assistant'}`
-  const label = document.createElement('div')
+  if (role !== 'user' && role !== 'assistant') return
+  const message = document.createElement('div')
+  message.className = 'caption-message'
+  message.dataset.role = role
+  const label = document.createElement('span')
   label.className = 'msg-label'
-  label.textContent = ROLE_LABELS[role] || role
-  const content = document.createElement('div')
-  content.textContent = text
-  bubble.append(label, content)
-  wrapper.appendChild(bubble)
-  $transcript.appendChild(wrapper)
-  $transcript.scrollTop = $transcript.scrollHeight
+  label.dataset.role = role
+  label.textContent = role === 'assistant' ? personaName || t('assistant') : t('user')
+  const content = document.createElement('p')
+  if (text === '(no speech detected)') {
+    content.dataset.noSpeech = ''
+    content.textContent = t('noSpeech')
+  } else {
+    content.textContent = text
+  }
+  message.append(label, content)
+  $('transcript').appendChild(message)
+  $('caption-empty').hidden = true
+  $('transcript').scrollTop = $('transcript').scrollHeight
 }
 
-function appendError(message) {
-  const el = document.createElement('div')
-  el.className = 'msg-error'
-  el.textContent = message
-  $transcript.appendChild(el)
-  $transcript.scrollTop = $transcript.scrollHeight
+async function refreshAvatar(persona, request) {
+  const controller = new AbortController()
+  avatarController = controller
+  const timeout = setTimeout(() => controller.abort(), 30000)
+  try {
+    const image = await loadPersonaAvatar(persona, controller.signal)
+    if (!image || request !== personaRequest) return
+    avatarUrl = URL.createObjectURL(image)
+    $('avatar-image').alt = personaName || t('assistant')
+    $('avatar-image').src = avatarUrl
+  } catch {
+    // Optional image failures keep the contact initial and never block dialing.
+  } finally {
+    clearTimeout(timeout)
+    if (avatarController === controller) avatarController = null
+  }
 }
 
-function resumeListening() {
-  if (!callActive || !ws.isConnected()) return
-  recorder.setListening(true)
-  setState('listening')
+async function refreshPersona() {
+  const request = ++personaRequest
+  personaController?.abort()
+  avatarController?.abort()
+  const controller = new AbortController()
+  personaController = controller
+  const timeout = setTimeout(() => controller.abort(), 8000)
+  let persona
+  try {
+    persona = await loadPersona(controller.signal)
+  } catch (error) {
+    if (request === personaRequest) {
+      const key = controller.signal.aborted ? 'personaTimeout'
+        : error.status === 401 || error.status === 403 ? 'personaAuthError' : 'personaError'
+      showError('', key)
+    }
+    return false
+  } finally {
+    clearTimeout(timeout)
+    if (personaController === controller) personaController = null
+  }
+
+  if (request !== personaRequest) return false
+  personaName = persona.name
+  if (avatarUrl) URL.revokeObjectURL(avatarUrl)
+  avatarUrl = null
+  $('avatar-image').hidden = true
+  $('avatar-image').removeAttribute('src')
+  $('avatar-fallback').hidden = false
+  $('avatar-fallback').textContent = Array.from(personaName)[0]?.toUpperCase() || 'AI'
+  if (errorKey?.startsWith('persona')) clearError()
+  render()
+  void refreshAvatar(persona, request)
+  return true
+}
+
+function updateDuration() {
+  if (startedAt === null) return
+  const seconds = Math.floor((performance.now() - startedAt) / 1000)
+  const parts = seconds >= 3600
+    ? [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    : [Math.floor(seconds / 60), seconds % 60]
+  $('call-duration').textContent = parts.map((part) => String(part).padStart(2, '0')).join(':')
 }
 
 function pauseListening() {
   recorder.setListening(false)
 }
 
-async function handleUtterance(audioBlob) {
-  if (!callActive || !ws.isConnected()) return
+function resumeListening() {
+  if (!callActive || !ws.isConnected() || busy || clearing || player.isPlaying()) return
+  if (!micMuted && !recorder.isListening()) recorder.setListening(true)
+  setState('listening')
+}
+
+async function handleUtterance(blob) {
+  if (!callActive || micMuted || busy || clearing || !ws.isConnected()) return
+  const generation = callGeneration
+  busy = true
   pauseListening()
   setState('thinking')
-  const buffer = await audioBlob.arrayBuffer()
-
-  if (!callActive || !ws.isConnected()) return
-  ws.sendAudio(buffer)
-  ws.sendControl('audio_end')
+  try {
+    const buffer = await blob.arrayBuffer()
+    if (!callActive || generation !== callGeneration || !ws.isConnected()) return
+    ws.sendAudio(buffer)
+    ws.sendControl('audio_end')
+  } catch {
+    if (generation !== callGeneration) return
+    busy = false
+    showError('', 'callError')
+    resumeListening()
+  }
 }
 
 player.onStateChange(
   () => {
+    if (!callActive) return
     pauseListening()
     setState('speaking')
   },
-  () => {
-    if (callActive) resumeListening()
-  },
+  () => { if (callActive) resumeListening() },
 )
 
 function handleMessage(data) {
+  if (!callActive) return
   switch (data.type) {
     case 'status':
       if (data.state === 'thinking' || data.state === 'speaking') {
+        busy = true
         pauseListening()
         setState(data.state)
-      } else if (data.state === 'idle' && !player.isPlaying()) {
-        resumeListening()
+      } else if (data.state === 'idle') {
+        busy = false
+        if (!player.isPlaying()) resumeListening()
+        render()
       }
       break
     case 'transcript':
@@ -127,82 +235,155 @@ function handleMessage(data) {
       }
       break
     case 'error':
-      appendError(data.message || '通话处理失败')
-      if (!player.isPlaying()) resumeListening()
+      if (data.message) showError(data.message)
+      else showError('', 'callError')
       break
     case 'cleared':
-      $transcript.innerHTML = ''
-      if (!player.isPlaying()) resumeListening()
+      clearing = false
+      clearTranscript()
+      resumeListening()
       break
   }
 }
 
 async function startCall() {
-  if (callActive) return
+  if (callActive || ending) return
+  const generation = ++callGeneration
   callActive = true
-  updateCallButton()
-  $btnCall.disabled = true
+  busy = false
+  micMuted = false
+  startedAt = null
+  $('call-duration').textContent = '00:00'
+  clearError()
+  clearTranscript()
   setState('connecting')
-
-  const micReady = await recorder.init()
-  if (!micReady) {
-    appendError('无法使用麦克风，请允许麦克风权限后重试。')
-    callActive = false
-    updateCallButton()
-    setState('disconnected')
-    $btnCall.disabled = false
+  microphoneTask = recorder.init()
+  const [micReady, personaReady] = await Promise.all([microphoneTask, refreshPersona()])
+  microphoneTask = null
+  if (!callActive || generation !== callGeneration) return
+  if (!micReady || !personaReady) {
+    await endCall()
+    if (!micReady) showError('', 'microphoneError')
     return
   }
 
-  recorder.start(handleUtterance, (activity) => {
-    if (activity === 'speech' && callActive) setState('listening')
-  })
-  recorder.setListening(false)
-  ws.connect(handleMessage, (connectionState) => {
-    if (!callActive) return
-    if (connectionState === 'connected') {
-      $btnCall.disabled = false
-      resumeListening()
-    } else {
-      pauseListening()
-      setState('connecting')
-    }
-  })
+  recorder.setMuted(false)
+  recorder.start(handleUtterance)
+  pauseListening()
+  try {
+    ws.connect(
+      (data) => { if (generation === callGeneration) handleMessage(data) },
+      (connection) => {
+        if (!callActive || generation !== callGeneration) return
+        busy = false
+        clearing = false
+        if (connection === 'connected') {
+          if (startedAt === null) {
+            startedAt = performance.now()
+            durationTimer = setInterval(updateDuration, 1000)
+          }
+          resumeListening()
+        } else {
+          player.stopAll()
+          pauseListening()
+          setState('connecting')
+        }
+      },
+    )
+  } catch {
+    await endCall()
+    showError('', 'callError')
+  }
 }
 
 async function endCall() {
-  if (!callActive) return
+  if (!callActive || ending) return
+  ending = true
   callActive = false
+  ++callGeneration
+  ++personaRequest
+  personaController?.abort()
+  avatarController?.abort()
   ws.disconnect()
   player.stopAll()
-  await recorder.dispose()
-  updateCallButton()
-  setState('disconnected')
+  updateDuration()
+  clearInterval(durationTimer)
+  durationTimer = null
+  busy = false
+  clearing = false
+  micMuted = false
+  $('btn-call').disabled = true
+  setState('ended')
+  try {
+    await microphoneTask
+    await recorder.dispose()
+  } finally {
+    ending = false
+    $('btn-call').disabled = false
+    render()
+  }
+}
+
+function showCaptions(visible) {
+  $('caption-panel').hidden = !visible
+  $('btn-captions').setAttribute('aria-pressed', String(visible))
+  $('btn-captions').setAttribute('aria-expanded', String(visible))
+  if (visible) $('transcript').scrollTop = $('transcript').scrollHeight
 }
 
 async function init() {
   const ctx = await window.PluginPageContext.ready()
-  applyTheme(ctx.isDark)
-  window.PluginPageContext.onThemeChange((isDark) => applyTheme(isDark))
-
-  updateCallButton()
-  setState('disconnected')
-  $btnCall.disabled = false
-  $btnCall.addEventListener('click', () => callActive ? endCall() : startCall())
-  $btnClear.addEventListener('click', () => {
-    if (!callActive) return
+  applyContext(ctx)
+  window.PluginPageContext.onContext(applyContext)
+  $('avatar-image').onload = () => {
+    $('avatar-image').hidden = false
+    $('avatar-fallback').hidden = true
+  }
+  $('avatar-image').onerror = () => {
+    $('avatar-image').hidden = true
+    $('avatar-fallback').hidden = false
+  }
+  $('btn-call').addEventListener('click', () => callActive ? endCall() : startCall())
+  $('btn-mute').addEventListener('click', () => {
+    micMuted = !micMuted
+    recorder.setMuted(micMuted)
+    if (micMuted) pauseListening()
+    else resumeListening()
+    render()
+  })
+  $('btn-speaker').addEventListener('click', () => {
+    speakerEnabled = !speakerEnabled
+    player.setMuted(!speakerEnabled)
+    render()
+  })
+  $('btn-captions').addEventListener('click', () => showCaptions($('caption-panel').hidden))
+  $('btn-close-captions').addEventListener('click', () => {
+    showCaptions(false)
+    $('btn-captions').focus()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('caption-panel').hidden) {
+      showCaptions(false)
+      $('btn-captions').focus()
+    }
+  })
+  $('btn-clear').addEventListener('click', () => {
+    if ($('btn-clear').disabled) return
+    clearing = true
+    pauseListening()
+    clearError()
+    render()
     ws.sendControl('clear')
-    player.stopAll()
-    resumeListening()
   })
-  window.addEventListener('beforeunload', () => {
-    ws.disconnect()
-    recorder.dispose()
+  window.addEventListener('pagehide', () => {
+    endCall()
+    ++personaRequest
+    personaController?.abort()
+    avatarController?.abort()
+    if (avatarUrl) URL.revokeObjectURL(avatarUrl)
   })
-}
-
-function applyTheme(isDark) {
-  document.body.setAttribute('data-theme', isDark ? 'dark' : 'light')
+  await refreshPersona()
+  $('btn-call').disabled = false
 }
 
 init()

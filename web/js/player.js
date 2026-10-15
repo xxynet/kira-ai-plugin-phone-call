@@ -5,6 +5,7 @@
 
 let queue = []
 let playing = false
+let muted = false
 let currentAudio = null
 
 /** @type {Function|null} */
@@ -48,20 +49,24 @@ function _playNext() {
   if (onPlayCallback) onPlayCallback()
 
   const audio = new Audio(`data:${mime};base64,${base64Data}`)
+  audio.muted = muted
   currentAudio = audio
 
   audio.onended = () => {
+    if (currentAudio !== audio) return
     currentAudio = null
     _playNext()
   }
 
   audio.onerror = (e) => {
+    if (currentAudio !== audio) return
     console.error('[player] audio playback error:', e)
     currentAudio = null
     _playNext()
   }
 
   audio.play().catch((err) => {
+    if (currentAudio !== audio) return
     console.error('[player] play() rejected:', err)
     currentAudio = null
     _playNext()
@@ -74,6 +79,8 @@ function _playNext() {
 export function stopAll() {
   queue = []
   if (currentAudio) {
+    currentAudio.onended = null
+    currentAudio.onerror = null
     currentAudio.pause()
     currentAudio.currentTime = 0
     currentAudio = null
@@ -81,10 +88,13 @@ export function stopAll() {
   playing = false
 }
 
-/**
- * Check if audio is currently playing.
- * @returns {boolean}
- */
+/** Apply the reply-audio switch to both current and future clips. */
+export function setMuted(value) {
+  muted = value
+  if (currentAudio) currentAudio.muted = muted
+}
+
+/** Check whether reply audio is currently playing. */
 export function isPlaying() {
   return playing
 }
