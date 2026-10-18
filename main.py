@@ -60,6 +60,11 @@ class PhoneCallPlugin(BasePlugin):
         try:
             while True:
                 message = await ws.receive()
+                if message["type"] == "websocket.disconnect":
+                    raise WebSocketDisconnect(
+                        code=message["code"],
+                        reason=message.get("reason", ""),
+                    )
 
                 # ── Binary frame: audio chunk from browser ──
                 if "bytes" in message and message["bytes"]:
